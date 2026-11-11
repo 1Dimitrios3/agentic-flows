@@ -5,14 +5,32 @@ import path from 'node:path';
 const SECTIONS = ['What to build', 'Acceptance criteria', 'Blocked by'];
 
 // Body of a "## <name>" section, up to the next "## " heading; null when the heading is absent.
-function section(text, name) {
+export function section(text, name) {
   const m = text.match(new RegExp(String.raw`^##[ \t]+${name}[ \t]*$([\s\S]*?)(?=^##[ \t]|(?![\s\S]))`, 'mi'));
   return m ? m[1].trim() : null;
 }
 
+// The first "# " heading outside fenced code blocks, as { title, line }; null when there is none.
+// A "# comment" inside a fence is code, not a heading.
+export function findTitle(text) {
+  let fence = null;
+  for (const [line, s] of text.split(/\r?\n/).entries()) {
+    const mark = s.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+    if (fence) {
+      // A fence closes on a line of the same marks, at least as many, and nothing else.
+      if (mark && mark[1].startsWith(fence) && !mark[2].trim()) fence = null;
+    } else if (mark) fence = mark[1];
+    else {
+      const m = s.match(/^#[ \t]+(.+)$/);
+      if (m) return { title: m[1].trim(), line };
+    }
+  }
+  return null;
+}
+
 // "None …" means no blockers. Otherwise each bullet names one ticket by the first number on it
 // ("- 01 …", "- #3", "- Ticket 02: …", "- [01-EXPORT](01-EXPORT.md)"); without bullets, every number counts.
-function parseBlockers(body) {
+export function parseBlockers(body) {
   if (/^[-*\s]*none\b/i.test(body)) return [];
   const bullets = body.split('\n').map((l) => l.match(/^\s*[-*]\s+\D*?(\d+)/)).filter(Boolean);
   if (bullets.length) return bullets.map((m) => Number(m[1]));
@@ -36,7 +54,7 @@ export function readTickets(dir) {
     if (missing.length) throw new Error(`${file} lacks a non-empty ${missing.map((s) => `"## ${s}"`).join(', ')}`);
     const blockedBy = parseBlockers(section(text, 'Blocked by'));
     // A heading may repeat the ticket number ("# 01 Lift…"); the queue prints the id itself.
-    const title = (text.match(/^#[ \t]+(.+)$/m)?.[1].trim() ?? file.replace(/^\d+-|\.md$/gi, '').replace(/[-_]/g, ' '))
+    const title = (findTitle(text)?.title ?? file.replace(/^\d+-|\.md$/gi, '').replace(/[-_]/g, ' '))
       .replace(new RegExp(String.raw`^(ticket\s+)?${id}\b[\s:.-]*`, 'i'), '');
     return { id, n, file, title, blockedBy };
   });

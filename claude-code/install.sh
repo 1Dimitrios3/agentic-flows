@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Installs the claude-flows skills, agents and CLIs as symlinks into this repo,
+# Installs the agentic-flows skills, agents and CLIs as symlinks into this repo,
 # or with --uninstall removes them. Never overwrites anything it did not create.
 set -euo pipefail
 
@@ -9,27 +9,39 @@ BIN_DIR="${BIN_DIR:-$HOME/.local/bin}"
 
 usage() {
   cat <<EOF
-Usage: ./install.sh [--uninstall]
+Usage: ./install.sh [--with-github] | --uninstall
 
 Symlinks this repo's skills and agents into ~/.claude and its two CLIs
-(create-flow, build-flow) into $BIN_DIR.
+(create-flow, build-flow) into $BIN_DIR. The flows work on folders;
+nothing else is needed.
 
-  --uninstall   remove those symlinks (only ones pointing into this repo)
-  -h, --help    show this help
+  --with-github  also link the optional GitHub Issues adapter (flow-github)
+  --uninstall    remove every symlink this script made, the adapter's included
+                 (only ones pointing into this repo)
+  -h, --help     show this help
 
 Set BIN_DIR to put the CLIs somewhere other than ~/.local/bin.
 EOF
 }
 
 MODE=install
-case "${1:-}" in
-  "") ;;
-  --uninstall) MODE=uninstall ;;
-  -h|--help) usage; exit 0 ;;
-  *) usage >&2; exit 2 ;;
-esac
+WITH_GITHUB=0
+for arg in "$@"; do
+  case "$arg" in
+    --with-github) WITH_GITHUB=1 ;;
+    --uninstall) MODE=uninstall ;;
+    -h|--help) usage; exit 0 ;;
+    *) usage >&2; exit 2 ;;
+  esac
+done
+if [ "$MODE" = uninstall ] && [ "$WITH_GITHUB" = 1 ]; then
+  echo "error: --uninstall already removes the adapter; drop --with-github." >&2
+  exit 2
+fi
 
-# Every link, as "source|destination".
+GITHUB_LINK="$REPO/adapters/github/github.mjs|$BIN_DIR/flow-github"
+
+# Every link, as "source|destination". The adapter is opt-in, but uninstall always removes it.
 LINKS=()
 for skill in create-flow build-flow; do
   LINKS+=("$REPO/skills/$skill|$CLAUDE_HOME/skills/$skill")
@@ -38,6 +50,9 @@ done
 for agent in "$REPO"/agents/*.md; do
   LINKS+=("$agent|$CLAUDE_HOME/agents/$(basename "$agent")")
 done
+if [ "$WITH_GITHUB" = 1 ] || [ "$MODE" = uninstall ]; then
+  LINKS+=("$GITHUB_LINK")
+fi
 
 # True when $2 is already a symlink to $1.
 linked() { [ -L "$2" ] && [ "$(readlink "$2")" = "$1" ]; }
@@ -67,6 +82,9 @@ if ! node -e 'const [a, b] = process.versions.node.split(".").map(Number); proce
   exit 1
 fi
 command -v git >/dev/null 2>&1 || echo "warning: git not found; build-flow needs it." >&2
+if [ "$WITH_GITHUB" = 1 ] && ! command -v gh >/dev/null 2>&1; then
+  echo "warning: gh not found; flow-github needs the GitHub CLI (https://cli.github.com)." >&2
+fi
 
 if [ -n "${CLAUDE_CONFIG_DIR:-}" ] && [ "$CLAUDE_CONFIG_DIR" != "$CLAUDE_HOME" ]; then
   echo "warning: CLAUDE_CONFIG_DIR is $CLAUDE_CONFIG_DIR, but the flows' hooks expect ~/.claude." >&2
@@ -90,6 +108,7 @@ fi
 
 mkdir -p "$CLAUDE_HOME/skills" "$CLAUDE_HOME/agents" "$BIN_DIR"
 chmod +x "$REPO"/skills/*/flow.mjs
+if [ "$WITH_GITHUB" = 1 ]; then chmod +x "$REPO"/adapters/github/github.mjs; fi
 
 for link in "${LINKS[@]}"; do
   src="${link%%|*}"; dst="${link#*|}"
@@ -108,3 +127,8 @@ esac
 
 echo
 echo "Installed. In Claude Code, start with /create-flow or /build-flow (see README.md)."
+if [ "$WITH_GITHUB" = 1 ]; then
+  echo "flow-github is linked: see adapters/github/README.md."
+else
+  echo "Optional: ./install.sh --with-github adds the GitHub Issues adapter (flow-github)."
+fi

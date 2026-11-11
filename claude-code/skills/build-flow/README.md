@@ -8,7 +8,7 @@ build-flow is standalone: it shares no code with any other flow and reads no oth
 
 `init` reads every `<NN>-<slug>.md` file in the tickets folder (other files are ignored) and refuses the set unless each ticket has a non-empty `## What to build`, `## Acceptance criteria` and `## Blocked by`, no two tickets share a number, and every blocker names a ticket in the folder with no cycle.
 
-`## Blocked by` holds "None" or one bullet per blocker, named by the first number on the bullet (`- 01`, `- #3`, `- Ticket 02: …`, `- [01-EXPORT](01-EXPORT.md)`). A ticket's title is its first `# ` heading (a leading ticket number is dropped), else its slug.
+`## Blocked by` holds "None" or one bullet per blocker, named by the first number on the bullet (`- 01`, `- #3`, `- Ticket 02: …`, `- [01-EXPORT](01-EXPORT.md)`). A ticket's title is its first `# ` heading outside code blocks (a leading ticket number is dropped), else its slug.
 
 The queue is the blocker order: repeatedly the lowest-numbered ticket whose blockers are all queued. It is fixed for the run, kept in `flow.json`, and printed by `init`, `status` and `handoff`.
 

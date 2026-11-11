@@ -22,6 +22,10 @@ test('walks the whole flow from INTAKE to DONE with exactly these files', () => 
   const t = setup();
   walk(t, 'DONE');
   assert.equal(t.read('events.jsonl').trim().split('\n').length, 1 + STEPS.length);
+  const done = t.flow('next', t.run).out;
+  assert.match(done, /^ {2}! build-flow init <build-folder> --repo <target> --spec <run>\/spec\/SPEC\.md --tickets <run>\/tickets /m);
+  assert.match(done, /run "command -v flow-github"\. If it prints nothing, say nothing about GitHub\./, 'the adapter is optional');
+  assert.match(done, /^ {2}! flow-github export --repo <owner\/name> --spec <run>\/spec\/SPEC\.md --tickets <run>\/tickets /m);
 });
 
 test('NEEDS_MORE_DISCOVERY: each refresh event waits for the report it names', () => {

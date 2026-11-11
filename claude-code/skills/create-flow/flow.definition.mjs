@@ -199,7 +199,16 @@ Below it, explain only what they must choose, one line each:
 - --gate: ticket = approve each ticket as it is built; end = review the whole build once, after the last ticket.
 - --commit (optional): ticket = build-flow commits each ticket (default); none = they commit themselves.
 
-Then stop. Building is build-flow's job, not this run's: do not run build-flow yourself, and do not offer to implement, branch or commit.`,
+Then check for the optional GitHub Issues adapter: run "command -v flow-github". If it prints nothing, say nothing about GitHub. If it prints a path, add that they can first publish the spec and tickets as GitHub issues, and give them this command to type, with <run> filled in and every other placeholder exactly as written:
+
+  ! flow-github export --repo <owner/name> --spec <run>/spec/SPEC.md --tickets <run>/tickets --label <feature> --dry-run
+
+Below it, one line each:
+- <owner/name>: the GitHub repo that will hold the issues.
+- --label (optional): a label for every issue, such as the feature's name; an import selects them by it later.
+- --dry-run: lists what would be created; the same command without it creates the issues.
+
+Then stop. Building is build-flow's job, not this run's: do not run build-flow or flow-github yourself, and do not offer to implement, branch or commit.`,
       on: {},
     },
   },

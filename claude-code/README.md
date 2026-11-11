@@ -47,11 +47,13 @@ cd <clone-dir>/claude-code
 | `~/.claude/agents/cf-*.md`, `~/.claude/agents/bf-*.md` | `claude-code/agents/…` in the repo |
 | `~/.local/bin/create-flow`, `~/.local/bin/build-flow` | each skill's `flow.mjs` |
 
+That's all the flows need: they read and write plain folders. The [GitHub Issues adapter](#github-issues) is optional and only linked if you ask for it, with `./install.sh --with-github`.
+
 It checks every path first and installs nothing if any of them already exists. Make sure `~/.local/bin` is on your `PATH`, or set `BIN_DIR` to put the two CLIs somewhere else.
 
 **Update:** `git pull`. The links point into the repo, so changes apply immediately.
 
-**Uninstall:** `./install.sh --uninstall`. It removes only the links that point into this repo, and leaves your run folders alone.
+**Uninstall:** `./install.sh --uninstall`. It removes only the links that point into this repo, the adapter's included, and leaves your run folders alone.
 
 ## Quick start
 
@@ -89,6 +91,21 @@ Claude walks you through adding sources, answering open questions, and approving
 
 The run folder must be outside the repo. Where the build happens (the repo's current branch or a new worktree) is chosen with you at the start of the run. See the [build-flow README](skills/build-flow/README.md) for every option.
 
+## GitHub Issues
+
+Optional. The flows are folder-first: create-flow writes a spec and a tickets folder, build-flow reads them, and neither knows about any tracker. If you want to plan or track them on GitHub, the `flow-github` adapter moves them across, before or after a flow. Link it with `./install.sh --with-github`.
+
+```
+! flow-github export --repo <owner/name> --spec <create-run>/spec/SPEC.md --tickets <create-run>/tickets --label <feature>
+! flow-github import --repo <owner/name> --spec <plan>/SPEC.md --tickets <plan>/tickets --label <feature>
+```
+
+- `export` publishes the spec as one issue and each ticket as another, with blockers as `#N` links and each ticket pointing to its spec.
+- `import` pulls the spec and the open ticket issues back into files for `build-flow init`.
+- Either direction takes `--spec`, `--tickets` or both.
+
+`<owner/name>` is the GitHub repo that holds the issues. `<plan>` is a new folder for the imported files. It needs the [GitHub CLI](https://cli.github.com), signed in. See the [adapter README](adapters/github/README.md) for every option.
+
 ## Documentation
 
 - [create-flow](skills/create-flow/README.md), and its [state diagram](skills/create-flow/LOGICAL-DIAGRAM.md)
@@ -98,11 +115,12 @@ Each README covers the CLI, every event, the hooks, the input formats, and how t
 
 ## Development
 
-Each skill has its own test suite:
+Each skill, and the GitHub adapter, has its own test suite:
 
 ```sh
 cd skills/create-flow && node --test
 cd skills/build-flow && node --test
+cd adapters/github && node --test
 ```
 
 The events table in each README and each `LOGICAL-DIAGRAM.md` are generated from `flow.definition.mjs`. After you change a definition, run `node docs.mjs --write` in that skill's folder.

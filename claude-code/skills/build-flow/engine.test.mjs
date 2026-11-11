@@ -84,6 +84,13 @@ test('init refuses tickets with missing sections, unknown blockers or cycles', (
   }
 });
 
+test('a ticket title is its first "# " heading outside code fences, else its slug', () => {
+  const fence = '```sh\n# install deps\nnpm ci\n```\n\n';
+  const t = make({ tickets: { '01-FIRST.md': fence + ticket('None'), '02-SECOND.md': `${fence}# 02 Real title\n\n${ticket('None')}` } });
+  assert.ok(t.create('--gate', 'end').ok);
+  assert.deepEqual(t.st().queue.map((x) => x.title), ['FIRST', 'Real title']);
+});
+
 test('workspace: the event checks the target and branch, then records them and the base', () => {
   const t = make();
   assert.ok(t.create('--gate', 'end').ok);

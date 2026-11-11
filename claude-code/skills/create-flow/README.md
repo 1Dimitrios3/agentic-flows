@@ -84,6 +84,10 @@ In your agent session (with the `!` prefix) or in a terminal:
 
 Both are stored absolute in `flow.json`. `init` prints `/create-flow <run>`, which starts the orchestrator and resumes the run in any later session.
 
+### Finishing a run
+
+In `DONE` the orchestrator gives you the `build-flow init` command to type, with the run's spec and tickets filled in. If the optional [GitHub Issues adapter](../../adapters/github/README.md) is linked (`flow-github` is on the `PATH`), it also gives you the `flow-github export` command. It runs neither: both are yours to type.
+
 ## Adding or removing a step
 
 Example: a design step and its gate after the spec gate.

@@ -18,8 +18,9 @@ Each flow is a state machine driven by a small Node CLI. The agent does the work
 | Tool | Folder | Status |
 |---|---|---|
 | [Claude Code](https://claude.com/claude-code) | [`claude-code/`](claude-code/README.md) | Available |
+| [opencode](https://opencode.ai) | [`opencode/`](opencode/) | Migration guides: [create-flow](opencode/CF-MIGRATE.md), [build-flow](opencode/BF-MIGRATE.md) |
 
-Each tool's folder has its own install steps and quick start.
+The Claude Code folder has its own install steps and quick start. The opencode folder has no ready-made port: it holds two guides that an agent follows to port each flow from its Claude Code version to opencode, or to re-sync the port after the Claude Code side changes.
 
 ## License
 

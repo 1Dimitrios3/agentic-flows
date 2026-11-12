@@ -124,3 +124,5 @@ The file may be `opencode.jsonc` instead: edit the one the human has, and keep i
 ### README
 
 Engine sections follow Claude's text with the CLI renamed. Harness sections are rewritten for opencode: hooks → "Guards (opencode)" (plugin denials, `ask` rules, context warning); "One-time setup" (the `C/` layout, the `<flow>-oc` symlink, the `opencode.json` snippet, per-agent permission YAML, "answer prompts with Allow once, never Allow always", the check commands); starting a run (`init` in a terminal); tests without the hook tests. No mention of Claude anywhere.
+
+One opencode-only note is kept on every sync, under "Starting a run" (create-flow's discovery states spawn two agents at once): "If spawning subagents in parallel makes opencode lag, ask the orchestrator to spawn them one after the other." It is the only one: any other opencode-only note is drift.

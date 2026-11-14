@@ -24,10 +24,18 @@ const finals = states.filter(([, s]) => !Object.keys(s.on).length).map(([n]) => 
 // Every value the engine offers to the instructions, so an unknown placeholder shows up here, not at a run.
 const sample = {
   ticket: '01', title: 'T', ticketFile: 'input/tickets/01-T.md', blockedBy: 'none', seedReports: 'none yet', approved: '-',
-  run: '/run', repo: '/repo', base: 'abc', target: '/repo', commit: 'none', resume: 'BUILD', reviewed: false, reviews: 0,
+  run: '/run', repo: '/repo', base: 'abc', target: '/repo', commit: 'none', gate: 'end', worktree: 'ask', scope: null, resume: 'BUILD', reviewed: false, reviews: 0,
   fixes: 0, via: 'APPROVE', left: { RETRY: 1, REJECT: 1 }, max: { RETRY: 3, REJECT: 5 },
 };
-const variants = [sample, { ...sample, commit: 'ticket', reviewed: true, reviews: 1, via: 'REPAIRED' }];
+const variants = [
+  sample,
+  { ...sample, commit: 'ticket', reviewed: true, reviews: 1, via: 'REPAIRED' },
+  { ...sample, worktree: 'ask', scope: 'ABC-1' },
+  { ...sample, worktree: 'auto', scope: 'ABC-1' },
+  { ...sample, worktree: 'auto', scope: 'ABC-1', via: 'WORKTREE_FAILED' },
+];
+// `initial` is a state name or a list of routes: every state a run can start in.
+const initials = Array.isArray(def.initial) ? def.initial.map((r) => r.target) : [def.initial];
 const text = (s, v) => (typeof s.do === 'function' ? s.do(v) : s.do);
 const fill = (s, v) =>
   s.replace(/\{(\w+(?:\.\w+)?)\}/g, (m, k) => {
@@ -46,8 +54,8 @@ test('the engine accepts the definition', () => {
   assert.match(r.out, /^build-flow: usage:/, r.out);
 });
 
-test('every state is reachable from the initial state', () => {
-  const seen = reachable([def.initial], (s) => transitions.filter((t) => t.from === s).map((t) => t.target));
+test('every state is reachable from an initial state', () => {
+  const seen = reachable(initials, (s) => transitions.filter((t) => t.from === s).map((t) => t.target));
   assert.deepEqual(Object.keys(def.states).filter((s) => !seen.has(s)), []);
 });
 

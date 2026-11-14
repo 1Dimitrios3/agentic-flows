@@ -1,6 +1,7 @@
 // build-flow's own steps, on the real definition: update STEPS with the steps. Engine rules live in engine.test.mjs.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import def from './flow.definition.mjs';
 import { setup, ticket, walkTo } from './harness.mjs';
 
@@ -79,11 +80,45 @@ test('gate end, commit ticket: BUILT commits the ticket itself, so it needs a --
   assert.equal(t.git('log', '-1', '--format=%s').stdout.trim(), 'feat(ABC-1): add the first thing');
 });
 
+test('gate end, commit ticket: a ticket that needs no change goes through with --unchanged and no message; the instructions cover it and a failing git hook', () => {
+  const t = make();
+  t.init('--gate', 'end', '--commit', 'ticket');
+  const next = t.flow('next', t.run).out;
+  assert.match(next, /When BUILT fails with nothing to commit/);
+  assert.match(next, /BUILT --unchanged '<why, in one line>'/);
+  assert.match(next, /When BUILT fails inside a git hook/);
+  assert.match(next, /Never bypass\s+a hook: no --no-verify/);
+  t.put('build/01/IMPL.md', IMPL());
+  t.put('build/01/VERIFY.md', PASS);
+  assert.match(t.send('BUILT', ...MESSAGE).out, /nothing to commit .* --unchanged '<why>'/s);
+  assert.equal(t.st().ticket, '01');
+  const r = t.send('BUILT', '--unchanged', 'the export already exists');
+  assert.ok(r.ok, r.out);
+  assert.equal(t.st().ticket, '03');
+  assert.equal(t.commits(), '1');
+  assert.match(t.flow('status', t.run).out, /01 FIRST · no change: the export already exists/);
+
+  // A failing pre-commit hook stops BUILT and shows its output; the same BUILT goes through once it passes.
+  const hook = `${t.repo}/.git/hooks/pre-commit`;
+  fs.writeFileSync(hook, '#!/bin/sh\necho "lint: 3 errors" >&2\nexit 1\n', { mode: 0o755 });
+  const blocked = build(t);
+  assert.ok(!blocked.ok);
+  assert.match(blocked.out, /lint: 3 errors/);
+  assert.equal(t.st().ticket, '03');
+  fs.rmSync(hook);
+  assert.ok(t.send('BUILT', ...MESSAGE).ok);
+  assert.equal(t.st().ticket, '02');
+
+  const repairing = make({ tickets: ONE });
+  walkTo(repairing, 'REPAIR', [built('01'), [[], 'REJECT']], ['--gate', 'end', '--commit', 'ticket']);
+  assert.match(repairing.flow('next', repairing.run).out, /When REPAIRED fails inside a git hook/);
+});
+
 test('the TICKET of a commit message: the run\'s ticket id when the human gave one, else a word per ticket from its own file', () => {
   const scoped = make();
   assert.ok(scoped.create('--gate', 'end', '--commit', 'ticket').ok);
   assert.ok(scoped.ready(scoped.repo, 'main', '--scope', 'ABC-1').ok);
-  assert.match(scoped.flow('next', scoped.run).out, /Its TICKET is ABC-1, the scope set for this run at WORKSPACE/);
+  assert.match(scoped.flow('next', scoped.run).out, /Its TICKET is ABC-1, the scope set for this run: use it as it is/);
   for (const other of ['feat(XYZ-9): add the first thing', 'feat(ABC-12): add the first thing'])
     assert.match(build(scoped, ['--message', other]).out, /must carry this run's scope, type\(ABC-1\): summary; nothing was sent/, other);
   assert.ok(build(scoped, ['--message', 'feat(ABC-1): add the first thing']).ok);
@@ -154,6 +189,65 @@ test('a run starts in WORKSPACE, whose instructions carry the send line; nothing
   assert.match(t.send('BUILT').out, /BUILT is not allowed in WORKSPACE/);
   assert.ok(t.ready().ok);
   assert.match(t.flow('next', t.run).out, /Ticket 01: FIRST/);
+});
+
+test('--worktree auto: the run starts in WORKTREE, the agents\' state; the agent makes the worktree, installs, and sends WORKSPACE_AUTO with no gate flags', () => {
+  const t = make();
+  assert.ok(t.create('--gate', 'end', '--worktree', 'auto', '--scope', 'ABC-1').ok);
+  assert.equal(t.st().state, 'WORKTREE');
+  assert.equal(def.states.WORKTREE.actor, 'agents', 'so the Stop hook keeps a --gate end run going through it');
+  assert.match(t.flow('status', t.run).out, /Target: {2}\(chosen in WORKTREE\)/);
+  const next = t.flow('next', t.run).out;
+  assert.doesNotMatch(next, /WORKSPACE_READY/, 'the human gate is not offered here');
+  assert.doesNotMatch(next, /ask, once, for the ticket id/);
+  assert.match(next, /The run's ticket id is ABC-1, given at init/);
+  assert.match(next, /for-each-ref --sort=-committerdate/, 'the branch follows the repo\'s own names');
+  assert.match(next, /Path: \S+repo-<the branch, each \/ replaced by ->/, 'the path is derived from --repo');
+  assert.match(next, /run npm i in it/);
+  assert.match(next, /no \.env or other local config/);
+  assert.match(next, /never stash, delete, commit or ignore it,\s+and never edit \.gitignore/, 'a dirty tree is not cleaned up');
+  assert.match(next, /the tree isn't clean after it, or\s+the engine refuses WORKSPACE_AUTO, don't work around it/, 'an engine refusal is a failure too');
+  assert.match(next, /build-flow send \S+ WORKSPACE_AUTO --target <path> --branch <branch> --source <source>\n/);
+  assert.match(next, /WORKSPACE_AUTO -> BUILD \(ready\)/);
+  assert.doesNotMatch(next, /WORKSPACE_AUTO -> BUILD \[human gate/);
+
+  const wt = `${t.repo}-feature-ABC-1-thing`;
+  t.git('worktree', 'add', '-q', '-b', 'feature/ABC-1-thing', wt, 'main');
+  const r = t.flow('send', t.run, 'WORKSPACE_AUTO', '--target', wt, '--branch', 'feature/ABC-1-thing', '--source', 'main');
+  assert.ok(r.ok, r.out);
+  assert.equal(t.st().state, 'BUILD');
+  assert.equal(t.st().scope, 'ABC-1');
+  assert.match(r.out, /Its TICKET is ABC-1/);
+
+  const ask = make();
+  assert.ok(ask.create('--gate', 'end', '--worktree', 'ask', '--scope', 'ABC-1').ok);
+  const asked = ask.flow('next', ask.run).out;
+  assert.doesNotMatch(asked, /ask, once, for the ticket id/, 'a scope given at init is not asked again');
+  assert.doesNotMatch(asked, /--scope <scope>/);
+  assert.equal(ask.st().state, 'WORKSPACE');
+  assert.doesNotMatch(asked, /WORKSPACE_AUTO|could not be created/, 'an ask run never sees the agent\'s event');
+  assert.match(ask.flow('send', ask.run, 'WORKSPACE_AUTO', '--target', ask.repo, '--branch', 'main').out, /WORKSPACE_AUTO is not allowed in WORKSPACE/);
+});
+
+test('--worktree auto: when the worktree can\'t be made, WORKTREE_FAILED hands the workspace to the human with ESCALATION.md', () => {
+  const t = make();
+  assert.ok(t.create('--gate', 'end', '--worktree', 'auto', '--scope', 'ABC-1').ok);
+  const first = t.flow('next', t.run).out;
+  assert.match(first, /write ESCALATION\.md\s+with the command that failed, its error and what you removed/);
+  assert.match(first, /build-flow send \S+ WORKTREE_FAILED\n/);
+  assert.match(t.flow('send', t.run, 'WORKTREE_FAILED').out, /WORKTREE_FAILED blocked:\s+missing or empty: ESCALATION\.md/);
+  assert.equal(t.st().state, 'WORKTREE');
+  t.put('ESCALATION.md', 'npm i failed: ERESOLVE\n');
+  const r = t.flow('send', t.run, 'WORKTREE_FAILED');
+  assert.ok(r.ok, r.out);
+  assert.equal(t.st().state, 'WORKSPACE');
+  assert.match(r.out, /could not be created\. Present ESCALATION\.md first/);
+  assert.match(r.out, /The run's ticket id is ABC-1, given at init/, 'the scope from init stands');
+  assert.match(r.out, /WORKSPACE_READY -> BUILD \[human gate: --at WORKSPACE and --note required\]/);
+  assert.match(t.flow('send', t.run, 'WORKSPACE_AUTO', '--target', t.repo, '--branch', 'main').out, /WORKSPACE_AUTO is not allowed in WORKSPACE/);
+  assert.ok(t.ready().ok, 'the human may pick the repo itself');
+  assert.equal(t.st().state, 'BUILD');
+  assert.equal(t.st().scope, 'ABC-1');
 });
 
 test('REJECT at TICKET_GATE sends the same ticket back to BUILD, where IMPL.md and VERIFY.md must be rewritten', () => {

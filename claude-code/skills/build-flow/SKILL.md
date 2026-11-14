@@ -29,16 +29,16 @@ You orchestrate one run of the build-flow state machine. The machine decides wha
 
 ## 1. Open the run
 
-The human creates every run with `build-flow init`, which checks the tickets, orders the queue, copies the SPEC and tickets into the run folder and records the repo, the gate mode and the commit mode.
+The human creates every run with `build-flow init`, which checks the tickets, orders the queue, copies the SPEC and tickets into the run folder and records the repo, the gate mode, the commit mode, the worktree mode and the ticket id.
 
 - **The argument is a folder holding a `flow.json`: open it.** Run `build-flow status <run>` and read the files its `Resume:` line lists, in that order. `status` shows the queue and the branch. If it flags a branch mismatch, stop and ask the human to switch back before anything else. Read nothing else from the run folder yet.
 - **Any other argument, or none: stop.** Ask the human to create the run by typing:
 
   ```
-  ! build-flow init <run> --repo <repo> --spec <SPEC.md> --tickets <tickets-folder> --gate ticket|end [--commit ticket|none]
+  ! build-flow init <run> --repo <repo> --spec <SPEC.md> --tickets <tickets-folder> --gate ticket|end [--commit ticket|none] --scope <ticket-id> [--worktree auto|ask]
   ```
 
-  `--repo` is the git repo the work belongs to; the run's first state then picks where in it the build happens (a new worktree, or a confirmed branch) and asks once for the ticket id that every commit message of the run carries; without one, each commit takes a word for the area of its own ticket. `--gate ticket` stops for the human after every ticket; `--gate end` once after all tickets. `--commit ticket` (default) gives every ticket its own commit: with `--gate ticket` the human makes it, with the message suggested after each approval; with `--gate end` the engine makes it when the ticket is built, with the message you write for it. `none` commits nothing, saves a patch per ticket, and proposes one commit message for the whole build once every ticket is built. The run folder must be outside the repo. Then start again with the `/build-flow <run>` line it prints.
+  `--repo` is the git repo the work belongs to, and `--scope` the ticket id every commit message of the run carries. `--worktree auto` (default) has you create a new worktree of the repo in the run's first state and move on without asking anything, so with `--gate end` the run goes on alone until the build gate; it needs `--scope`. `--worktree ask` has the human pick where the build happens (a new worktree, or a confirmed branch); there `--scope` is optional: without it the first state asks once for the ticket id, and without one each commit takes a word for the area of its own ticket. `--gate ticket` stops for the human after every ticket; `--gate end` once after all tickets. `--commit ticket` (default) gives every ticket its own commit: with `--gate ticket` the human makes it, with the message suggested after each approval; with `--gate end` the engine makes it when the ticket is built, with the message you write for it. `none` commits nothing, saves a patch per ticket, and proposes one commit message for the whole build once every ticket is built. The run folder must be outside the repo. Then start again with the `/build-flow <run>` line it prints.
 
 Done when `build-flow next <run>` has printed the current state.
 

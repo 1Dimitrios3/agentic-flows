@@ -67,12 +67,14 @@ export function setup(def, { flowPath = ENGINE, tickets = TICKETS } = {}) {
   fs.mkdirSync(t.tdir);
   for (const [f, body] of Object.entries(tickets)) fs.writeFileSync(path.join(t.tdir, f), body);
 
-  // The state and event that choose the workspace: the transition carrying the workspace effect.
-  const ws = Object.entries(def.states).flatMap(([state, s]) => Object.entries(s.on).filter(([, x]) => x.workspace).map(([ev]) => ({ state, ev })))[0];
+  // The state and event with which the human chooses the workspace: the human transition carrying the workspace effect.
+  const ws = Object.entries(def.states).flatMap(([state, s]) => Object.entries(s.on).filter(([, x]) => x.workspace && x.human).map(([ev]) => ({ state, ev })))[0];
 
   t.flow = (...args) => run(flowPath, ...args);
-  // Create the run in its initial state only.
-  t.create = (...extra) => t.flow('init', t.run, '--repo', t.repo, '--spec', t.spec, '--tickets', t.tdir, ...extra);
+  // Create the run in its initial state only. With --worktree ask unless `extra` names a mode: the human picks the
+  // workspace, so a test needs no ticket id. --worktree auto runs name it themselves.
+  t.create = (...extra) =>
+    t.flow('init', t.run, '--repo', t.repo, '--spec', t.spec, '--tickets', t.tdir, ...(extra.includes('--worktree') ? [] : ['--worktree', 'ask']), ...extra);
   // Pass the workspace state on the repo's main branch (or the given target), with no ticket id unless `extra` has --scope.
   t.ready = (target = t.repo, branch = 'main', ...extra) =>
     t.flow('send', t.run, ws.ev, '--at', ws.state, '--target', target, '--branch', branch, ...extra, '--note', 'this one');

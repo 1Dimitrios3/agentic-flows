@@ -70,8 +70,8 @@ function awayWarning() {
 
 if (tool_name === 'Bash') {
   const cmd = tool_input.command ?? '';
-  // A gate word inside a --note is prose, not the event.
-  const bare = cmd.replace(/--(note|message)\s+("[^"]*"|'[^']*'|\S+)/g, '');
+  // A gate word inside a --note, --message or --unchanged is prose, not the event.
+  const bare = cmd.replace(/--(note|message|unchanged)\s+("[^"]*"|'[^']*'|\S+)/g, '');
   if (sub && new RegExp(CLI + '(init|send|handoff)\\b').test(cmd))
     deny(`Only the orchestrator moves a ${NAME} run: report back to it instead.`);
   if (new RegExp(CLI + 'init\\b').test(cmd))

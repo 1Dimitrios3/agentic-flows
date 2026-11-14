@@ -81,15 +81,17 @@ Claude walks you through adding sources, answering open questions, and approving
 **2. Build the tickets.**
 
 ```
-! build-flow init <build-run> --repo <repo> --spec <create-run>/spec/SPEC.md --tickets <create-run>/tickets --gate ticket
+! build-flow init <build-run> --repo <repo> --spec <create-run>/spec/SPEC.md --tickets <create-run>/tickets --gate ticket --scope <ticket-id>
 /build-flow <build-run>
 ```
 
 - `--gate ticket` has you approve every ticket. `--gate end` lets the build run unattended and shows it to you once, after the last ticket. In both modes you approve the review and choose which findings to fix.
+- `--scope <ticket-id>` is the ticket id in your tracker (such as `ABC-123`), which every commit message of the run carries.
+- `--worktree auto` (the default) has the agent create a new worktree of the repo and start building without asking; it needs `--scope`. `--worktree ask` has you pick a new worktree or the repo's current branch at the start of the run; there `--scope` is optional.
 - `--commit ticket` (the default) gives every ticket its own commit. With `--gate ticket`, you make each commit from a suggested message. With `--gate end`, the engine commits each ticket itself, with a message the agent writes.
 - `--commit none` commits nothing. At the end you get one suggested message for the whole build, to commit when you choose.
 
-The run folder must be outside the repo. Where the build happens (the repo's current branch or a new worktree) is chosen with you at the start of the run. See the [build-flow README](skills/build-flow/README.md) for every option.
+The run folder must be outside the repo. See the [build-flow README](skills/build-flow/README.md) for every option.
 
 ## GitHub Issues
 

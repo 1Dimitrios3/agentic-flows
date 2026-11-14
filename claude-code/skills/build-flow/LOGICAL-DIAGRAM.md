@@ -7,7 +7,11 @@ The state machine in `flow.definition.mjs`, drawn as a diagram. Boxes are states
 stateDiagram-v2
     direction TB
 
+    [*] --> WORKTREE: build-flow init (human) [worktree `auto`]
     [*] --> WORKSPACE: build-flow init (human)
+
+    WORKTREE --> BUILD: WORKSPACE_AUTO
+    WORKTREE --> WORKSPACE: WORKTREE_FAILED [ESCALATION.md rewritten]
 
     WORKSPACE --> BUILD: WORKSPACE_READY
 
@@ -47,7 +51,7 @@ stateDiagram-v2
     classDef agents fill:#1e7a46,stroke:#0f4a29,stroke-width:2px,color:#ffffff
     classDef human fill:#b3261e,stroke:#6e1611,stroke-width:2px,color:#ffffff
 
-    class BUILD,REVIEW,REPAIR agents
+    class WORKTREE,BUILD,REVIEW,REPAIR agents
     class WORKSPACE,TICKET_GATE,BUILD_GATE,REVIEW_GATE,ESCALATED,DONE human
 ```
 <!-- end generated -->
@@ -61,7 +65,7 @@ stateDiagram-v2
 
 ## Reading the loops
 
-- **WORKSPACE** runs once, when the run is created: the human picks a new worktree or confirms a branch of the repo, and gives the ticket id every commit message of the run carries (with none, each commit takes one word for the area of its own ticket, from that ticket's file); the engine checks the workspace before the first ticket. Nothing leads back to it, so resuming a run never repeats it.
+- **The workspace** is chosen once, when the run is created, in the state `init` enters for its `--worktree` mode. With `auto` (the default) the run starts in WORKTREE, an agents' state where nobody is asked: the agent creates a new worktree beside the repo, on a branch named the way the repo names its branches, runs `npm i` in it and sends WORKSPACE_AUTO, so the run goes on alone; `init` required the ticket id (`--scope`). Only when the worktree can't be made does it write `ESCALATION.md` and send WORKTREE_FAILED, which hands the choice to the human in WORKSPACE. With `ask` the run starts in WORKSPACE: the human picks a new worktree or confirms a branch of the repo, and gives the ticket id every commit message of the run carries unless `init` had it (with none, each commit takes one word for the area of its own ticket, from that ticket's file). Either way the engine checks the workspace before the first ticket. Nothing leads back to either state, so resuming a run never repeats them.
 - **The ticket loop** runs BUILD once per ticket in queue order. Inside BUILD the orchestrator loops implement → verify → fix until `VERIFY.md` says PASS. Each FAIL is a RETRY, at most 3 per pass; past that RETRY is refused and the only way on is STUCK. A new ticket, a REJECT or a CONTINUE starts a new pass. With `--gate ticket` every ticket stops at TICKET_GATE; with `--gate end` the engine records the ticket on BUILT and moves on, and the human sees the whole build at BUILD_GATE.
 - **REJECT at TICKET_GATE** sends the same ticket back to BUILD; IMPL.md and VERIFY.md have to be rewritten before BUILT.
 - **The review loop**: every review stops at REVIEW_GATE, where the human reads REPORT.md and chooses. REJECT with the findings to fix (or other improvements) goes REVIEW_GATE → REPAIR → REVIEW → REVIEW_GATE, at most 5 times; past that REJECT is refused. APPROVE closes the run.

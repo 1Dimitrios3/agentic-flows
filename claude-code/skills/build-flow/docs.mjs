@@ -29,6 +29,7 @@ const WHEN = {
   more: (v) => (v ? 'more tickets' : 'last ticket'),
   reviewed: (v) => (v ? 'after a review' : 'before any review'),
   resume: (v) => `the escalation resumes ${v}`,
+  worktree: (v) => `worktree \`${v}\``,
 };
 const conditions = (b) => Object.entries(b.when ?? {}).map(([k, v]) => (WHEN[k] ?? ((x) => `${k} = ${x}`))(v));
 
@@ -65,6 +66,7 @@ function guards(b, words) {
 // What the engine does on the move, in its effect order.
 function effects(b) {
   return [
+    ...(b.workspace === 'new' ? ['checks the target is a new worktree, not the repo itself'] : []),
     ...(b.workspace ? ['records the target, branch, source, base and commit scope'] : []),
     ...(b.verified ? ['records the verified tree'] : []),
     ...(b.accept ? [`records the ticket (commit, or \`${b.accept}\`)`] : []),
@@ -78,7 +80,11 @@ function effects(b) {
   ];
 }
 
-const gateWords = (b) => (b.human ? [`human gate${b.workspace ? ' with `--target`, `--branch`, (for a worktree) `--source` and (with a ticket id) `--scope`' : ''}`] : []);
+const gateWords = (b) => {
+  if (b.human) return [`human gate${b.workspace ? ' with `--target`, `--branch`, (for a worktree) `--source` and (with a ticket id) `--scope`' : ''}`];
+  // The agent's own pick: the ticket id came with init.
+  return b.workspace === 'new' ? ['no gate; with `--target`, `--branch` and `--source`'] : [];
+};
 
 export function table(d) {
   const rows = transitions(d).map(({ from, ev, b }) => {
@@ -91,7 +97,13 @@ export function table(d) {
 }
 
 export function diagram(d) {
-  const lines = ['```mermaid', 'stateDiagram-v2', '    direction TB', '', `    [*] --> ${d.initial}: ${d.id} init (human)`];
+  // `initial` is a state name or a list of routes: one arrow per route, with its condition.
+  const initial = Array.isArray(d.initial) ? d.initial : [{ target: d.initial }];
+  const lines = ['```mermaid', 'stateDiagram-v2', '    direction TB', ''];
+  for (const r of initial) {
+    const g = conditions(r);
+    lines.push(`    [*] --> ${r.target}: ${d.id} init (human)${g.length ? ` [${g.join(', ')}]` : ''}`);
+  }
   for (const [from, s] of Object.entries(d.states)) {
     const on = Object.entries(s.on);
     lines.push('');

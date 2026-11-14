@@ -23,7 +23,11 @@ export default link({
     START: {
       actor: 'human',
       do: 'Pick the workspace for {repo}.',
-      on: { GO: { target: '@next', human: true, workspace: true } },
+      on: {
+        GO: { target: '@next', human: true, workspace: true },
+        // The agent's own pick: a new worktree only, and only in a run created with --worktree auto.
+        GO_NEW: { routes: [{ when: { worktree: 'ask' }, refuse: 'the human picks' }, { target: '@next', workspace: 'new' }] },
+      },
     },
 
     WORK: {

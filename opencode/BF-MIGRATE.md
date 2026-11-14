@@ -132,7 +132,7 @@ The file may be `opencode.jsonc` instead: edit the one the human has, and keep i
   cd ~/.config/opencode/build-flow && node -e 'import("./flow.definition.mjs").then(({default:d})=>console.log([...new Set(Object.values(d.states).flatMap(s=>Object.entries(s.on).filter(([,t])=>t.human).map(([e])=>e)))].join("\n")))'
   ```
 
-  A gate word inside `--note` or `--message` also prompts (a glob can't skip it): the safe side.
+  A gate word inside `--note`, `--message` or `--unchanged` also prompts (a glob can't skip it): the safe side.
 - `external_directory`: `"*": "ask"` plus `"allow"` for the human's run folders and build workspaces (worktrees sit outside the project too), and for `~/.config/opencode/build-flow/references/` (the orchestrator and agents read it by path).
 
 ### README

@@ -292,7 +292,7 @@ function importPlan(opt) {
     for (const t of queue) console.log(`- ${t.id} ${t.title}`);
     const specArg = opt.spec ? path.resolve(opt.spec) : '<SPEC.md>';
     console.log(
-      `\nBuild them with:\n  build-flow init <build-run> --repo <repo> --spec ${specArg} --tickets ${path.resolve(opt.tickets)} --gate ticket|end`,
+      `\nBuild them with:\n  build-flow init <build-run> --repo <repo> --spec ${specArg} --tickets ${path.resolve(opt.tickets)} --gate ticket|end --scope <ticket-id>`,
     );
   }
 }

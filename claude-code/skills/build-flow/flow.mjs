@@ -28,6 +28,7 @@ const RESUME = "@resume";
 const CLOCK_SLACK_MS = 20;
 
 const at = (run, p) => path.join(run, p);
+const now = () => new Date().toISOString();
 
 // Symlink-free absolute path; the path need not exist yet (its nearest existing ancestor is resolved).
 // git reports a repo's real path, so a path compared with it has to be resolved the same way.
@@ -37,7 +38,6 @@ function real(p) {
     rest.unshift(path.basename(p));
   return path.join(fs.realpathSync(p), ...rest);
 }
-const now = () => new Date().toISOString();
 
 // A transition is either one branch or a list of routes; each route inherits the transition's fields.
 function branches(t) {
@@ -160,6 +160,7 @@ function vars(st, via) {
     target: st.target ?? "-",
     commit: st.commit,
     gate: st.gate,
+    worktree: worktreeOf(st),
     // Null when the human gave no ticket id: each commit message then takes its own one-word scope.
     scope: st.scope ?? null,
     resume: st.resume ?? "-",
@@ -186,18 +187,48 @@ const fill = (s, v) =>
 const instructions = (s, v) =>
   fill(typeof s.do === "function" ? s.do(v) : s.do, v);
 
+// How the workspace is chosen: auto, the agent makes a new worktree alone; ask, the human picks it at a gate.
+// A run created before the option has none, and was created to ask.
+function worktreeOf(st) {
+  return st.worktree ?? "ask";
+}
+
+// The TICKET of a commit message, type(TICKET): summary, so it can't hold spaces or parentheses. A --worktree auto
+// run also names its branch with it, so it must be valid in a git branch name too (no : ~ ^ ? * [ \, no "..", ...).
+// Checked as refs/heads/<scope>, so git doesn't expand @{-N}.
+function checkScope(scope) {
+  if (!scope) return;
+  if (!/^[^()\s]+$/.test(scope))
+    fail(`--scope ${scope} can't be a commit scope: no spaces or parentheses`);
+  const r = spawnSync("git", ["check-ref-format", `refs/heads/${scope}`]);
+  if (r.status !== 0)
+    fail(
+      `--scope ${scope} can't be part of a git branch name (git check-ref-format refuses it): no : ~ ^ ? * [ \\ or "..", and no / at either end`,
+    );
+}
+
 // Facts a route's `when` can test, read from the run.
 const facts = {
   gate: (st) => st.gate,
+  worktree: worktreeOf,
   more: (st) => st.queue.some((x) => !x.done && x.id !== st.ticket),
   reviewed: (st) => !!st.reviewed,
   resume: (st) => st.resume ?? null,
 };
 
+// Whether a route's `when` holds for the run; no `when` always does.
+const holds = (st, when) =>
+  Object.entries(when ?? {}).every(([k, v]) => facts[k](st) === v);
+
+// The state init enters: `initial` is a state name, or a list of routes ({ when, target }) of which the first
+// that holds for the new run is taken.
+const INITIAL = Array.isArray(def.initial)
+  ? def.initial
+  : [{ target: def.initial }];
+const initialOf = (st) => INITIAL.find((r) => holds(st, r.when)).target;
+
 function resolve(st, t) {
-  const b = branches(t).find((b) =>
-    Object.entries(b.when ?? {}).every(([k, v]) => facts[k](st) === v),
-  );
+  const b = branches(t).find((b) => holds(st, b.when));
   if (!b) fail(`definition: no route of ${st.state} matches the run`);
   return { ...b, target: b.target === RESUME ? st.resume : b.target };
 }
@@ -293,13 +324,18 @@ function gitOk(cwd, ...args) {
 const branchOf = (target) =>
   gitOk(target, "symbolic-ref", "--short", "-q", "HEAD") || null;
 
+// Stages the whole working tree; false when that leaves nothing to commit.
+function stage(st) {
+  git(st, "add", "-A");
+  return (
+    spawnSync("git", ["-C", st.target, "diff", "--cached", "--quiet"])
+      .status === 1
+  );
+}
+
 // Commits the whole working tree; returns the new sha, or null when there is nothing to commit and that is allowed.
 function commit(st, msg, allowNothing) {
-  git(st, "add", "-A");
-  const staged =
-    spawnSync("git", ["-C", st.target, "diff", "--cached", "--quiet"])
-      .status === 1;
-  if (!staged) {
+  if (!stage(st)) {
     if (allowNothing) return null;
     fail(`nothing to commit in ${st.target} for "${msg}"`);
   }
@@ -380,12 +416,15 @@ const effects = {
   // The workspace check: the target is the run's repo or one of its worktrees, on the named branch, outside the run
   // folder, and clean for engine commits. Records the target, the branch, the source and the base every diff is taken against,
   // and, when the human has a ticket id, the scope: the TICKET of every commit message in the run, type(TICKET): summary.
-  workspace({ st, ev, opt }) {
+  // A scope given at init stands: --scope may repeat it, not change it. `kind` 'new' (the agent made the worktree on
+  // its own) also refuses the repo itself as the target.
+  workspace({ st, ev, opt }, kind) {
     if (!opt.target || !opt.branch)
       fail(`${ev} needs --target <repo-or-worktree> and --branch <name>`);
-    if (opt.scope && !/^[^()\s]+$/.test(opt.scope))
+    checkScope(opt.scope);
+    if (st.scope && opt.scope && opt.scope !== st.scope)
       fail(
-        `--scope ${opt.scope} can't be a commit scope: no spaces or parentheses`,
+        `--scope ${opt.scope}: this run's scope is ${st.scope}, given at init; leave --scope out`,
       );
     const dir = path.resolve(opt.target);
     const top =
@@ -407,6 +446,10 @@ const effects = {
     if (st.commit === "ticket" && gitOk(top, "status", "--porcelain"))
       fail(
         `--commit ticket needs a clean working tree in ${top}; commit or stash first`,
+      );
+    if (kind === "new" && top === st.repo)
+      fail(
+        `${ev} builds in a new worktree of ${st.repo}, not in the repo itself; create one with git worktree add`,
       );
     const base = gitOk(top, "rev-parse", "HEAD");
     // A worktree must name the source it was created from, and still sit on that commit: it becomes the base.
@@ -434,7 +477,7 @@ const effects = {
       branch,
       source: opt.source ?? null,
       base,
-      scope: opt.scope ?? null,
+      scope: opt.scope ?? st.scope ?? null,
     });
   },
   // The tree that just passed verification: later edits show up as drift against it.
@@ -442,15 +485,26 @@ const effects = {
     st.verified = { label: `ticket ${st.ticket}`, tree: treeOf(st) };
   },
   // Records the current ticket (a commit, or the patch at `patch` in commit mode none) and moves to the next one.
+  // A commit with nothing to commit fails, since the work may have gone to another folder: only --unchanged '<why>'
+  // records a ticket that needs no change, with no commit and the reason in the queue.
   accept({ run, st, opt, v }, patch) {
     const cur = st.queue.find((x) => x.id === st.ticket);
-    if (st.commit === "ticket")
-      cur.sha = commit(
-        st,
-        opt.message ?? `Ticket ${cur.id}: ${cur.title}`,
-        false,
-      );
-    else snapshot(run, st, fill(patch, v));
+    if (st.commit === "ticket") {
+      const msg = opt.message ?? `Ticket ${cur.id}: ${cur.title}`;
+      const changed = stage(st);
+      if (opt.unchanged && changed)
+        fail(
+          `--unchanged: ${st.target} has changes to commit for ticket ${cur.id}; send the event without it`,
+        );
+      if (!opt.unchanged && !changed)
+        fail(
+          `nothing to commit in ${st.target} for "${msg}". If the ticket's work went to another folder, it has to be ` +
+            `redone here. If the ticket truly needs no change, send the event again with --unchanged '<why>': ` +
+            `it is then recorded with no commit`,
+        );
+      if (changed) cur.sha = commit(st, msg, false);
+      else cur.unchanged = opt.unchanged;
+    } else snapshot(run, st, fill(patch, v));
     cur.done = true;
     st.ticket = st.queue.find((x) => !x.done)?.id ?? null;
   },
@@ -560,11 +614,24 @@ for (const [name, s] of Object.entries(def.states))
     if (t.routes && t.routes.at(-1).when)
       fail(`${where} the last route needs no condition, so one always matches`);
   }
-// The state where the workspace is chosen: until then the run has no target.
-const WORKSPACE_STATE = Object.keys(def.states).find((n) =>
-  Object.values(def.states[n].on).some((t) => t.workspace),
-);
-const NO_TARGET = WORKSPACE_STATE ? `(chosen in ${WORKSPACE_STATE})` : "-";
+INITIAL.forEach((r, i) => {
+  const where = "definition: initial";
+  if (!def.states[r.target]) fail(`${where} unknown state ${r.target}`);
+  for (const k of Object.keys(r.when ?? {}))
+    if (!facts[k])
+      fail(
+        `${where} unknown fact ${k} in when; known: ${Object.keys(facts).join(", ")}`,
+      );
+  if (i === INITIAL.length - 1 && r.when)
+    fail(`${where} the last route needs no condition, so one always matches`);
+});
+// Until the workspace is chosen the run has no target: it sits in a state with an event that chooses it.
+const noTarget = (st) =>
+  Object.values(def.states[st.state]?.on ?? {}).some((t) =>
+    branches(t).some((b) => b.workspace),
+  )
+    ? `(chosen in ${st.state})`
+    : "-";
 
 // The queue in build order: done or open, blockers, and the commit that recorded it.
 const fmtQueue = (st) =>
@@ -574,6 +641,7 @@ const fmtQueue = (st) =>
         `- [${x.done ? "x" : " "}] ${x.id} ${x.title}` +
         (x.blockedBy.length ? ` (blocked by ${x.blockedBy.join(", ")})` : "") +
         (x.sha ? ` · ${x.sha.slice(0, 10)}` : "") +
+        (x.unchanged ? ` · no change: ${x.unchanged}` : "") +
         (x.id === st.ticket ? "  ← current" : ""),
     )
     .join("\n");
@@ -597,7 +665,7 @@ const pinOf = (st) =>
 
 // The run's branch, flagged when the target has moved off it since the workspace was chosen.
 function fmtBranch(st) {
-  if (!st.target) return NO_TARGET;
+  if (!st.target) return noTarget(st);
   const name = (b) => b ?? "(detached HEAD)";
   const now = branchOf(st.target);
   if (now === (st.branch ?? null)) return name(st.branch);
@@ -638,6 +706,18 @@ const commands = {
     const mode = opt.commit ?? "ticket";
     if (!["none", "ticket"].includes(mode))
       fail("--commit is ticket (default) or none");
+    const worktree = opt.worktree ?? "auto";
+    if (!["auto", "ask"].includes(worktree))
+      fail(
+        "--worktree is auto (default: the agent creates a new worktree alone) or ask (the human picks the workspace)",
+      );
+    // Nobody is asked anything with auto, so the ticket id every commit message carries comes from init.
+    if (worktree === "auto" && !opt.scope)
+      fail(
+        "--worktree auto (the default) needs --scope <ticket-id>, the TICKET of every commit message in the run; " +
+          "or pass --worktree ask to pick the workspace and the ticket id at the first state",
+      );
+    checkScope(opt.scope);
     if (fs.existsSync(at(run, "flow.json")))
       fail(
         `${run} already holds a flow; resume it with /${NAME} ${path.resolve(run)}`,
@@ -686,6 +766,9 @@ const commands = {
       tickets,
       gate: opt.gate,
       commit: mode,
+      worktree,
+      // The ticket id: required at init with worktree auto; with ask, given here or asked for at the workspace state.
+      scope: opt.scope ?? null,
       branch: null,
       source: null,
       base: null,
@@ -696,23 +779,31 @@ const commands = {
       fixes: 0,
       repairShas: [],
       resume: null,
-      state: def.initial,
+      state: null,
       enteredAt: now(),
     };
+    st.state = initialOf(st);
     save(run, st);
-    log(run, { event: "INIT", to: def.initial, ticket: st.ticket });
+    log(run, { event: "INIT", to: st.state, ticket: st.ticket });
+    // With nobody approving the workspace, the first permission prompt would be the first command after it.
+    const away =
+      worktree === "auto" && st.gate === "end"
+        ? "\nThe run goes on alone from the start: the agent creates the worktree " +
+          "and builds every ticket before it stops for you. Switch the session to auto mode (Shift+Tab) before you leave, " +
+          "or the first command that needs your approval stalls the run.\n"
+        : "";
     console.log(
-      `Created ${abs} (state ${st.state}, repo ${top}, gate ${st.gate}, commit ${st.commit})\n\nQueue:\n${fmtQueue(st)}\n\n` +
-        `Start the orchestrator with:\n\n  /${NAME} ${abs}\n`,
+      `Created ${abs} (state ${st.state}, repo ${top}, gate ${st.gate}, commit ${st.commit}, worktree ${worktree})\n\nQueue:\n${fmtQueue(st)}\n\n` +
+        `Start the orchestrator with:\n\n  /${NAME} ${abs}\n${away}`,
     );
   },
 
   status(run) {
     const st = load(run);
     console.log(
-      `Run:     ${st.run}\nRepo:    ${st.repo}\nTarget:  ${st.target ?? NO_TARGET}\nBranch:  ${fmtBranch(st)}\n` +
+      `Run:     ${st.run}\nRepo:    ${st.repo}\nTarget:  ${st.target ?? noTarget(st)}\nBranch:  ${fmtBranch(st)}\n` +
         `Source:  ${st.source ?? "-"}\n` +
-        `Gate:    ${st.gate} · Commit: ${st.commit} · Scope: ${st.scope ?? "-"} · Base: ${st.base ?? "-"}\n` +
+        `Gate:    ${st.gate} · Commit: ${st.commit} · Worktree: ${worktreeOf(st)} · Scope: ${st.scope ?? "-"} · Base: ${st.base ?? "-"}\n` +
         `State:   ${st.state} (since ${st.enteredAt})\nTicket:  ${fmtTicket(st)}\nResume:  ${fmtResume(run)}\n`,
     );
     console.log(`Queue:\n${fmtQueue(st)}\n`);
@@ -787,9 +878,11 @@ const commands = {
     if (bl.length) fail(`${ev} blocked:\n  ${bl.join("\n  ")}`);
     // An agent's event that commits (a ticket or a repair) has no human to read the message first: the definition's
     // `message` ({ pattern, max, hint }) is then the shape --message must have. A human's event keeps the default subject.
+    // A ticket sent as --unchanged makes no commit, so it needs no message.
     if (
       b.message &&
       (b.accept || b.commitRepair) &&
+      !(b.accept && opt.unchanged) &&
       !t.human &&
       st.commit === "ticket"
     ) {
@@ -845,7 +938,7 @@ const commands = {
       at(run, file),
       `# Handoff ${n}
 
-State: **${st.state}** · Ticket: ${fmtTicket(st)} · Target repo: \`${st.target ?? NO_TARGET}\` · Branch: ${fmtBranch(st)} · Written: ${now()}
+State: **${st.state}** · Ticket: ${fmtTicket(st)} · Target repo: \`${st.target ?? noTarget(st)}\` · Branch: ${fmtBranch(st)} · Written: ${now()}
 
 Resume with: \`/${NAME} ${st.run}\`
 
@@ -877,10 +970,12 @@ const FLAGS = [
   "tickets",
   "gate",
   "commit",
+  "worktree",
   "at",
   "ticket",
   "note",
   "message",
+  "unchanged",
   "target",
   "branch",
   "source",
@@ -904,7 +999,8 @@ const usage = () =>
     `usage: ${NAME} <init|status|next|send|drift|handoff> [<run-folder>] [EVENT]\n` +
       "  without <run-folder>, the run last named on the command line is used (init always needs one)\n" +
       "  init: --repo <repo> --spec <SPEC.md> --tickets <dir> --gate ticket|end [--commit ticket|none]\n" +
-      "  send: [--at <STATE> [--ticket <NN>]] [--note '...'] [--message '<commit subject>'] [--target <repo-or-worktree> --branch <name> [--scope <ticket-id>] [--source <ref>]]",
+      "        [--worktree auto] --scope <ticket-id> | --worktree ask [--scope <ticket-id>]\n" +
+      "  send: [--at <STATE> [--ticket <NN>]] [--note '...'] [--message '<commit subject>' | --unchanged '<why>'] [--target <repo-or-worktree> --branch <name> [--scope <ticket-id>] [--source <ref>]]",
   );
 if (!commands[cmd]) usage();
 let run = args[0];

@@ -192,12 +192,14 @@ and ask for one verdict on the whole set: APPROVE, or REJECT with what to change
 
 Then give them the build-flow command for them to type, since only the human creates a build run. Fill in <run> and <target> from the Run and Target lines of create-flow status. Leave every other placeholder exactly as written, and pick no option for them:
 
-  ! build-flow init <build-folder> --repo <target> --spec <run>/spec/SPEC.md --tickets <run>/tickets --gate <ticket|end> [--commit <ticket|none>]
+  ! build-flow init <build-folder> --repo <target> --spec <run>/spec/SPEC.md --tickets <run>/tickets --gate <ticket|end> --scope <ticket-id> [--commit <ticket|none>] [--worktree <auto|ask>]
 
 Below it, explain only what they must choose, one line each:
 - <build-folder>: a new folder for the build run, outside the target repo.
 - --gate: ticket = approve each ticket as it is built; end = review the whole build once, after the last ticket.
+- --scope: the ticket id in their tracker (such as ABC-123), which every commit message carries; it can be left out only with --worktree ask.
 - --commit (optional): ticket = build-flow commits each ticket (default); none = they commit themselves.
+- --worktree (optional): auto = build-flow creates a new worktree of the repo itself and asks nothing (default); ask = they pick a new worktree or a branch of the repo when the build starts.
 
 Then check for the optional GitHub Issues adapter: run "command -v flow-github". If it prints nothing, say nothing about GitHub. If it prints a path, add that they can first publish the spec and tickets as GitHub issues, and give them this command to type, with <run> filled in and every other placeholder exactly as written:
 

@@ -69,7 +69,7 @@ flow-github export --repo <owner/name> --spec <create-run>/spec/SPEC.md --ticket
 
 # 3. Build: pull the spec and what's open into new files
 flow-github import --repo <owner/name> --spec <plan>/SPEC.md --tickets <plan>/tickets --label <feature>
-build-flow init <build-run> --repo <repo> --spec <plan>/SPEC.md --tickets <plan>/tickets --gate ticket
+build-flow init <build-run> --repo <repo> --spec <plan>/SPEC.md --tickets <plan>/tickets --gate ticket --scope <ticket-id>
 ```
 
 `<plan>` is any new folder for the imported files.

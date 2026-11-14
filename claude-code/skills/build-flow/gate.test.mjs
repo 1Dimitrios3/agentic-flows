@@ -40,7 +40,9 @@ test('asks the human on human-gate events however the command is chained', () =>
 test('allows agent events and read-only commands', () => {
   for (const cmd of [
     'build-flow send /r BUILT',
+    'build-flow send /r WORKSPACE_AUTO --target /r-feature-x --branch feature/x --source main',
     'build-flow send /r BUILT --message "feat: APPROVE flow"',
+    "build-flow send /r BUILT --unchanged 'the APPROVE flow already exists'",
     'R=/r; build-flow send $R REVIEWED && build-flow next $R',
     'build-flow next /r',
     'build-flow status /r',

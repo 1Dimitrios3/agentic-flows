@@ -29,15 +29,78 @@ with the log entry it came from. Briefs point here instead of restating them. --
 // Only when the state was entered via APPROVE (so with a gate per ticket) in commit mode ticket; otherwise the
 // instructions start at step 1. The commit modes: ticket commits every ticket, by the human's hand after each APPROVE
 // or, with no gate per ticket, by the engine on BUILT; none commits nothing and proposes one message at BUILD_GATE.
-// The TICKET of a commit message, type(TICKET): summary. WORKSPACE asks the human once for their ticket id, the run's
-// scope, and every message carries it. With none, each message takes one word for the area of what it commits, decided
+// The TICKET of a commit message, type(TICKET): summary. Init takes the human's ticket id, the run's scope (required
+// with --worktree auto), or WORKSPACE asks for it once, and every message carries it. With none, each message takes one word for the area of what it commits, decided
 // per commit from `area` (for a ticket, its own ticket file), never one word for the whole run.
 const scopeRule = (v, area) =>
   v.scope
-    ? ` Its TICKET is {scope}, the scope set for this run at WORKSPACE: use it as it is, whatever the branch name or the
-latest commits say.`
+    ? ` Its TICKET is {scope}, the scope set for this run: use it as it is, whatever the branch name or the latest
+commits say.`
     : ` This run has no ticket id, so its TICKET is one lowercase word (such as auth) for the area of ${area}, whatever the
 branch name or the latest commits say. Decide it for this commit alone: another commit of the run may take another word.`;
+// WORKSPACE. With --worktree auto, init requires the ticket id (--scope); with --worktree ask, it is asked here once
+// unless init was given it.
+const ASK_SCOPE = `Then ask, once, for the ticket id this work belongs to in their tracker (such as ABC-123): it becomes the TICKET of every
+commit message in the run, type(TICKET): summary, and nothing asks for it again. Say in the question itself what happens
+without one: each commit then takes one lowercase word for the area of what it commits, decided per ticket from that
+ticket's file in input/tickets, so the commits of one run can differ. Their id is the run's scope; pick no word now.`;
+const SCOPE_GIVEN = `The run's ticket id is {scope}, given at init: it is the TICKET of every commit message in the run. Don't ask for it.`;
+const WORKSPACE_RECORDS = `It records the branch, the source and the scope, and takes HEAD as the base every diff is measured from. The build
+never switches branches after this, and with a scope a commit the engine makes is refused under any other.`;
+
+// WORKSPACE, where a --worktree ask run starts and an auto run falls back: the human picks a new worktree or a branch
+// of the repo, and accepts the event in a permission prompt.
+const workspaceAsk = (v) => `Choose where the build happens, starting from the repo {repo}. Ask the human whether to create a new workspace,
+a git worktree, for it.
+- Yes: ask for its path, the source to start from (a branch or commit) and the new branch name. Run
+  git -C {repo} worktree add -b <branch> <path> <source>, then git -C <path> status -sb to show it. A new worktree has none
+  of the repo's untracked files: ask whether to install dependencies or copy local config (such as .env) into it, and do it
+  if they say so; the test and check runners need them.
+- No: run git -C {repo} status -sb, show the current branch and any uncommitted changes, and ask the human to confirm it is
+  the branch to build on. If they name another, switch with git -C {repo} switch <branch> only when the working tree is
+  clean; otherwise let them sort it out.
+${v.scope ? SCOPE_GIVEN : ASK_SCOPE}
+Once the human confirms, send it yourself, filled in (--source is required for a new worktree; for the repo itself, omit
+it${v.scope ? '' : '; omit --scope when they gave no ticket id'}); the human accepts it in a permission prompt:
+build-flow send <run> WORKSPACE_READY --at WORKSPACE --target <path> --branch <branch> --source <source>${v.scope ? '' : ' --scope <scope>'} --note '<their words>'
+The engine checks that the target is {repo} or one of its worktrees, on that branch, outside the run folder, clean
+when the commit mode is ticket ({commit} here), and, with --source, still at the source's commit. ${WORKSPACE_RECORDS}`;
+
+// WORKSPACE entered because the agent couldn't make the worktree of a --worktree auto run: the human reads why first.
+const WORKTREE_FAILED = `The worktree of this --worktree auto run could not be created. Present ESCALATION.md first: what failed, its error and
+what was removed. The human now picks the workspace instead.
+
+`;
+
+// WORKTREE, where a --worktree auto run starts: the agent makes the worktree itself and sends the event with no prompt,
+// so the run goes on alone.
+const workspaceAuto = () => `Create the build's workspace yourself, a new git worktree of the repo {repo}, without asking the human anything: from
+here the run goes on alone until its next human gate. The run's ticket id is {scope}, given at init.
+1. Source: the branch the repo is on (git -C {repo} branch --show-current), or its HEAD commit when it is detached.
+2. Branch: name it the way this repo names its branches. List the recent ones with
+   git -C {repo} for-each-ref --sort=-committerdate --count=30 --format='%(refname:short)' refs/heads refs/remotes
+   and follow the convention most of them share: the prefix (such as feature/ or feat/), where and how a ticket id
+   appears, case and separators. Fill it with the ticket id {scope} and a short kebab-case summary of the title of
+   input/SPEC.md. With no convention to follow, use feature/{scope}-<summary>. It must not exist yet:
+   git -C {repo} rev-parse --verify -q refs/heads/<branch> must fail.
+3. Path: {repo}-<the branch, each / replaced by ->, beside the repo. It must not exist yet.
+4. Run git -C {repo} worktree add -b <branch> <path> <source>. A new worktree has none of the repo's untracked files:
+   when it has a package.json, run npm i in it; when that changes a tracked file (package-lock.json), restore it with
+   git -C <path> checkout -- <file>. Copy nothing else into it: no .env or other local config. Then run
+   git -C <path> status -sb: the tree must be clean. Something the install left untracked (such as node_modules, when
+   .gitignore doesn't list it) is a failure below, not something to clean up: never stash, delete, commit or ignore it,
+   and never edit .gitignore.
+5. Send it yourself: it is not a human gate, so it takes no --at, no --note and no permission prompt:
+build-flow send {run} WORKSPACE_AUTO --target <path> --branch <branch> --source <source>
+The engine checks that the target is a new worktree of {repo}, not the repo itself, on that branch, outside the run
+folder, clean when the commit mode is ticket ({commit} here), and still at the source's commit. ${WORKSPACE_RECORDS}
+When a name is taken, derive another. When the worktree can't be made, npm i fails, the tree isn't clean after it, or
+the engine refuses WORKSPACE_AUTO, don't work around it (no stash, no edit to the worktree's files): remove what
+you created (git -C {repo} worktree remove --force <path>, then git -C {repo} branch -D <branch>), write ESCALATION.md
+with the command that failed, its error and what you removed, then send:
+build-flow send {run} WORKTREE_FAILED
+It hands the workspace to the human, who picks where to build instead.`;
+
 const TICKET_AREA = (id, file) => `ticket ${id}, taken from what ${file} says it builds`;
 const REPAIR_AREA = 'this repair, taken from the findings it fixed and the files it changed';
 
@@ -59,6 +122,17 @@ const COMMIT_MESSAGE = {
   max: 72,
   hint: 'one line shaped type(TICKET): summary, 72 characters at most, as ~/.claude/skills/build-flow/references/commit-msg.md describes',
 };
+// The engine's commit on BUILT finds no change in the target: the work is elsewhere, or the ticket needs none.
+const NOTHING_TO_COMMIT = `When BUILT fails with nothing to commit, the target holds no change for this ticket. If the implementer reported
+changed files, they went to another folder: send it back to redo them in {target}. If the ticket truly needs no change
+(IMPL.md shows each acceptance criterion already met, with its file:line), send, in place of --message:
+build-flow send {run} BUILT --unchanged '<why, in one line>'
+The engine records the ticket with no commit, and the queue shows the reason at the build gate.`;
+// The engine's commit runs the repo's git hooks (husky: pre-commit, commit-msg), and a hook that fails stops the event.
+const hookFailed = (ev, sendTo) => `When ${ev} fails inside a git hook (pre-commit, commit-msg; the engine prints the hook's output), the hook is one more
+check the work must pass: send its output to ${sendTo} and send ${ev} again; this is not a RETRY. A
+hook that rejects only the message: rewrite the message so it satisfies both the hook and the shape above. Never bypass
+a hook: no --no-verify, no edit to the hook or its config.`;
 const ON_PASS = `On PASS, send BUILT: the ticket goes to the human's gate or, with no gate per ticket, the engine saves it as a patch
 and moves on. Nothing is committed.`;
 const onPassUnattendedCommit = (v) => `On PASS, write the ticket's commit message, then send BUILT with it: the engine commits the ticket on BUILT and no
@@ -66,7 +140,10 @@ human sees the message first. Read ~/.claude/skills/build-flow/references/commit
 (git -C {target} status --short and git -C {target} diff --ignore-cr-at-eol; it can't be invoked as a skill) to get its one
 line.${scopeRule(v, TICKET_AREA('{ticket}', '{ticketFile}'))} Then send:
 build-flow send {run} BUILT --message '<that line>'
-The engine refuses BUILT without a --message of that shape${v.scope ? ' and scope' : ''}.`;
+The engine refuses BUILT without a --message of that shape${v.scope ? ' and scope' : ''}.
+${NOTHING_TO_COMMIT}
+${hookFailed('BUILT', "this ticket's implementer, verify again (step 2)")} When the same hook failure returns after a fix, or its
+cause is outside the code (a missing tool, the hook itself crashing), write ESCALATION.md and send STUCK.`;
 // Repairs follow the tickets. With a gate per ticket in commit mode ticket the human commits each repair themselves:
 // the gate after it suggests the message. With no gate per ticket the engine commits it on REPAIRED.
 const humanCommitsRepair = (v) => v.commit === 'ticket' && v.gate === 'ticket';
@@ -81,7 +158,8 @@ const afterRepair = (v) => {
 changes (git -C {target} status --short and git -C {target} diff --ignore-cr-at-eol; it can't be invoked as a skill) to
 get its one line.${scopeRule(v, REPAIR_AREA)} Then send:
 build-flow send {run} REPAIRED --message '<that line>'
-The engine commits the repair with it, and refuses REPAIRED without a --message of that shape${v.scope ? ' and scope' : ''}.`;
+The engine commits the repair with it, and refuses REPAIRED without a --message of that shape${v.scope ? ' and scope' : ''}.
+${hookFailed('REPAIRED', "this round's implementer, re-run both commands, rewrite review/REPAIR.md")}`;
   return humanCommitsRepair(v)
     ? 'Nothing is committed: the next gate suggests its commit message, for the human to commit it.'
     : 'Nothing is committed.';
@@ -119,7 +197,9 @@ const afterTicket = (how) => [
 
 export default link({
   id: 'build-flow',
-  initial: 'WORKSPACE',
+  // --worktree auto starts where the agent makes the worktree; ask, and a run created before the option, where the
+  // human picks the workspace.
+  initial: [{ when: { worktree: 'auto' }, target: 'WORKTREE' }, { target: 'WORKSPACE' }],
 
   // Folders init creates in the run folder; the engine adds input/ (the SPEC and tickets) and handoffs/ itself.
   // Seeds are files init writes.
@@ -145,28 +225,21 @@ export default link({
   ],
 
   states: {
+    // Only a --worktree auto run starts here. It is the agents' state, so the Stop hook keeps a --gate end run going
+    // through it; when the worktree can't be made, the run moves to the human's state below.
+    WORKTREE: {
+      actor: 'agents',
+      do: workspaceAuto,
+      on: {
+        WORKSPACE_AUTO: { target: 'BUILD', workspace: 'new' },
+        WORKTREE_FAILED: { target: '@next', fresh: [ESCALATION] },
+      },
+    },
+
+    // The human's pick: where a --worktree ask run starts, and the fallback of an auto run.
     WORKSPACE: {
       actor: 'human',
-      do: `Choose where the build happens, starting from the repo {repo}. Ask the human whether to create a new workspace,
-a git worktree, for it.
-- Yes: ask for its path, the source to start from (a branch or commit) and the new branch name. Run
-  git -C {repo} worktree add -b <branch> <path> <source>, then git -C <path> status -sb to show it. A new worktree has none
-  of the repo's untracked files: ask whether to install dependencies or copy local config (such as .env) into it, and do it
-  if they say so; the test and check runners need them.
-- No: run git -C {repo} status -sb, show the current branch and any uncommitted changes, and ask the human to confirm it is
-  the branch to build on. If they name another, switch with git -C {repo} switch <branch> only when the working tree is
-  clean; otherwise let them sort it out.
-Then ask, once, for the ticket id this work belongs to in their tracker (such as ABC-123): it becomes the TICKET of every
-commit message in the run, type(TICKET): summary, and nothing asks for it again. Say in the question itself what happens
-without one: each commit then takes one lowercase word for the area of what it commits, decided per ticket from that
-ticket's file in input/tickets, so the commits of one run can differ. Their id is the run's scope; pick no word now.
-Once the human confirms, send it yourself, filled in (--source is required for a new worktree; for the repo itself, omit
-it; omit --scope when they gave no ticket id); the human accepts it in a permission prompt:
-build-flow send <run> WORKSPACE_READY --at WORKSPACE --target <path> --branch <branch> --source <source> --scope <scope> --note '<their words>'
-The engine checks that the target is {repo} or one of its worktrees, on that branch, outside the run folder, clean
-when the commit mode is ticket ({commit} here), and, with --source, still at the source's commit. It records the branch,
-the source and the scope, and takes HEAD as the base every diff is measured from. The build never switches branches
-after this, and with a scope a commit the engine makes is refused under any other.`,
+      do: (v) => `${v.via === 'WORKTREE_FAILED' ? WORKTREE_FAILED : ''}${workspaceAsk(v)}`,
       on: {
         WORKSPACE_READY: { target: '@next', human: true, workspace: true },
       },
@@ -188,6 +261,8 @@ earlier ticket.
 - Later in this ticket (a RETRY, or a repeat pass entered via REJECT or CONTINUE): resume this ticket's implementer with
   SendMessage, sending the failure evidence or the human's note and any new DECISIONS.md entries quoted. If it is gone
   (a new session), spawn a fresh one as above plus build/{ticket}/IMPL.md.
+Every brief, fresh or resumed, names the workspace: "All your work happens in {target}: read, edit and run commands
+there, never in another checkout of the repo."
 Every brief, fresh or resumed, also carries the report line: "Write your full report to {run}/build/{ticket}/IMPL.md
 (on a repeat pass, rewrite it as the ticket's current state, with this pass's change in its Passes section), then return
 only the short reply your definition describes."
@@ -302,7 +377,8 @@ ESCALATION.md with it and send GUARDRAIL_HIT before briefing the implementer.
 Attribute each finding to the ticket that introduced it (each ticket's files are listed in build/<NN>/IMPL.md). Spawn a
 fresh bf-code-implementer for this repair round, seeded with input/SPEC.md, DECISIONS.md, the tickets concerned, the
 build/<NN>/IMPL.md reports of every ticket and the findings with their evidence and ticket numbers, under the same brief
-rules as BUILD. Resume it with SendMessage for this round's own re-runs; the next round spawns a new one.
+rules as BUILD, the workspace line included: "All your work happens in {target}: read, edit and run commands there, never
+in another checkout of the repo." Resume it with SendMessage for this round's own re-runs; the next round spawns a new one.
 Then re-run its check command and full test suite in Bash, as BUILD's Verify step does, with logs in review/.
 Write review/REPAIR.md: first line "Verdict: PASS" or "Verdict: FAIL", then the findings fixed, by ticket, and both
 commands' outcomes. Repeat until PASS. REPAIRED saves the repair as a patch and goes to ${

@@ -47,7 +47,7 @@ test('blocks a stop in BUILD of a --gate end run, naming the run and the next co
 });
 
 test('blocks in every state that is the agents to work', () => {
-  for (const state of ['BUILD', 'REVIEW', 'REPAIR']) assert.notEqual(stop(run({ state }).sid), '', state);
+  for (const state of ['WORKTREE', 'BUILD', 'REVIEW', 'REPAIR']) assert.notEqual(stop(run({ state }).sid), '', state);
 });
 
 test('blocks again while already continuing from a block: the cap on blocks in a row is Claude Code’s', () => {

@@ -29,7 +29,8 @@ export const run = (flowPath, ...args) => {
 
 // A fresh run folder and target repo, driven by the engine at flowPath.
 export function setup(flowPath = path.join(SKILL, 'flow.mjs')) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-test-'));
+  // Resolved, since the system temp folder can be a symlink (macOS) and git reports real paths.
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'flow-test-')));
   const t = { run: path.join(root, 'run'), target: path.join(root, 'repo') };
   fs.mkdirSync(t.target);
   t.flow = (...args) => run(flowPath, ...args);

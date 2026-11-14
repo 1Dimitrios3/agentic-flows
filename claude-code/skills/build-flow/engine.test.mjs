@@ -44,7 +44,7 @@ test('init orders the queue by blockers, copies the inputs, creates the folders 
   assert.ok(t.has('input/SPEC.md'));
   for (const d of ['in', 'out', 'handoffs']) assert.ok(fs.statSync(path.join(t.run, d)).isDirectory(), d);
   assert.equal(t.read('in/NOTES.md'), '# Notes\n', 'seeded');
-  assert.match(r.out, /Created .* \(state START, repo .*, gate end, commit ticket\)/);
+  assert.match(r.out, /Created .* \(state START, repo .*, gate end, commit ticket, worktree ask\)/);
   assert.match(r.out, /- \[ \] 03 Third \(blocked by 01\)/, 'the heading number is not repeated');
   assert.match(r.out, /\/fixture /);
   const status = t.flow('status', t.run).out;
@@ -59,8 +59,20 @@ test('init refuses bad arguments, a run inside the repo, and a second run in the
   assert.match(t.flow('init', t.run, '--repo', t.repo).out, /needs --spec, --tickets, --gate/);
   assert.match(t.create('--gate', 'always').out, /--gate is ticket/);
   assert.match(t.create('--gate', 'end', '--commit', 'squash').out, /--commit is ticket \(default\) or none/);
-  assert.match(t.flow('init', path.join(t.repo, 'run'), '--repo', t.repo, '--spec', t.spec, '--tickets', t.tdir, '--gate', 'end').out, /outside the repo/);
-  assert.match(t.flow('init', t.run, '--repo', t.root, '--spec', t.spec, '--tickets', t.tdir, '--gate', 'end').out, /repo is not a git repo/);
+  assert.match(t.flow('init', path.join(t.repo, 'run'), '--repo', t.repo, '--spec', t.spec, '--tickets', t.tdir, '--gate', 'end', '--worktree', 'ask').out, /outside the repo/);
+  assert.match(t.flow('init', t.run, '--repo', t.root, '--spec', t.spec, '--tickets', t.tdir, '--gate', 'end', '--worktree', 'ask').out, /repo is not a git repo/);
+  assert.match(t.create('--gate', 'end', '--worktree', 'always').out, /--worktree is auto \(default.*\) or ask/);
+  assert.match(t.create('--gate', 'end', '--worktree', 'auto').out, /--worktree auto \(the default\) needs --scope <ticket-id>/);
+  assert.match(t.flow('init', t.run, '--repo', t.repo, '--spec', t.spec, '--tickets', t.tdir, '--gate', 'end').out, /--worktree auto \(the default\) needs --scope/, 'auto is the default');
+  assert.match(t.create('--gate', 'end', '--worktree', 'auto', '--scope', 'a b').out, /can't be a commit scope/);
+  for (const bad of ['OOC:120', 'OOC..120', 'OOC~1', 'OOC^1', 'OOC?1', 'OOC*1', 'OOC[1', 'OOC\\1', '/OOC', 'OOC/', 'OOC.lock'])
+    assert.match(t.create('--gate', 'end', '--worktree', 'auto', '--scope', bad).out, /can't be part of a git branch name/, bad);
+  assert.ok(!t.has('flow.json'), 'nothing created for a bad scope');
+  for (const good of ['OOC-120', 'ooc_120', 'OOC/120', 'v1.2']) {
+    const r = t.create('--gate', 'end', '--worktree', 'auto', '--scope', good);
+    assert.ok(r.ok, `${good}: ${r.out}`);
+    fs.rmSync(t.run, { recursive: true, force: true });
+  }
   assert.match(t.create('--gate', 'end', '--bogus', 'x').out, /unknown option --bogus/);
   assert.ok(t.create('--gate', 'end').ok);
   assert.match(t.create('--gate', 'end').out, /already holds a flow/);
@@ -144,6 +156,57 @@ test('workspace: a worktree needs --source, which must exist and still be where 
   assert.match(u.ready(wu, 'feature/y', '--source', 'main').out, /not at --source main .* it has moved since it was created/);
   assert.ok(u.ready(u.repo, 'main', '--source', 'main').ok, 'the repo itself may name a source too');
   assert.equal(u.st().source, 'main');
+});
+
+test('workspace, worktree auto: init records the mode and the scope; the agent event needs a new worktree and no gate flags', () => {
+  const t = make();
+  const r = t.create('--gate', 'end', '--worktree', 'auto', '--scope', 'ABC-1');
+  assert.ok(r.ok, r.out);
+  assert.match(r.out, /worktree auto\)/);
+  assert.match(r.out, /Switch the session to auto mode/, 'nobody approves anything before the build gate');
+  assert.equal(t.st().worktree, 'auto');
+  assert.equal(t.st().scope, 'ABC-1');
+  assert.match(t.flow('status', t.run).out, /Worktree: auto · Scope: ABC-1/);
+  const go = (...args) => t.flow('send', t.run, 'GO_NEW', ...args);
+  assert.match(go('--target', t.repo, '--branch', 'main').out, /builds in a new worktree of .*, not in the repo itself/);
+  const wt = path.join(t.root, 'wt');
+  t.git('worktree', 'add', '-q', '-b', 'feature/ABC-1-x', wt, 'main');
+  assert.match(go('--target', wt, '--branch', 'feature/ABC-1-x').out, /is a worktree: pass --source/);
+  assert.match(go('--target', wt, '--branch', 'feature/ABC-1-x', '--source', 'main', '--scope', 'XYZ-9').out, /this run's scope is ABC-1, given at init/);
+  assert.equal(t.st().state, 'START');
+  const ok = go('--target', wt, '--branch', 'feature/ABC-1-x', '--source', 'main');
+  assert.ok(ok.ok, ok.out);
+  assert.equal(t.st().state, 'WORK');
+  assert.equal(t.st().target, wt);
+  assert.equal(t.st().scope, 'ABC-1', 'the scope from init stands');
+  const last = JSON.parse(t.read('events.jsonl').trim().split('\n').at(-1));
+  assert.equal(last.event, 'GO_NEW');
+  assert.equal(last.human, undefined, 'not a human gate');
+
+  const g = make();
+  const gr = g.create('--gate', 'ticket', '--worktree', 'auto', '--scope', 'ABC-1');
+  assert.doesNotMatch(gr.out, /Switch the session/, 'a gate per ticket: the human is around');
+  assert.ok(g.ready(g.repo, 'main', '--scope', 'ABC-1').ok, 'the human gate stays open as the fallback');
+});
+
+test('workspace, worktree ask: the agent event is refused, also for a run created before the option', () => {
+  const t = make();
+  assert.ok(t.create('--gate', 'end').ok);
+  assert.equal(t.st().worktree, 'ask');
+  assert.equal(t.st().scope, null);
+  const wt = path.join(t.root, 'wt');
+  t.git('worktree', 'add', '-q', '-b', 'feature/x', wt, 'main');
+  assert.match(t.flow('send', t.run, 'GO_NEW', '--target', wt, '--branch', 'feature/x', '--source', 'main').out, /refused: the human picks/);
+
+  const old = make();
+  assert.ok(old.create('--gate', 'end', '--worktree', 'auto', '--scope', 'ABC-1').ok);
+  const st = old.st();
+  delete st.worktree;
+  fs.writeFileSync(path.join(old.run, 'flow.json'), JSON.stringify(st));
+  assert.match(old.flow('status', old.run).out, /Worktree: ask/);
+  const wo = path.join(old.root, 'wt');
+  old.git('worktree', 'add', '-q', '-b', 'feature/x', wo, 'main');
+  assert.match(old.flow('send', old.run, 'GO_NEW', '--target', wo, '--branch', 'feature/x', '--source', 'main').out, /refused: the human picks/);
 });
 
 test('workspace: refuses a dirty tree in commit mode ticket, and a target holding the run', () => {
@@ -243,8 +306,30 @@ test('accept: commits the item as "Ticket NN: title" or --message, and fails wit
   const r = u.send('DONE_IT');
   assert.ok(!r.ok);
   assert.match(r.out, /nothing to commit/);
+  assert.match(r.out, /send the event again with --unchanged '<why>'/);
   assert.equal(u.st().state, 'WORK');
   assert.equal(u.st().ticket, '01');
+});
+
+test('accept: --unchanged records a ticket that needs no change with no commit, and is refused when there are changes', () => {
+  const u = make();
+  u.init('--gate', 'end', '--commit', 'ticket');
+  u.put('out/01/R.md', 'Verdict: OK\n');
+  u.edit();
+  const dirty = u.send('DONE_IT', '--unchanged', 'already there');
+  assert.match(dirty.out, /--unchanged: .* has changes to commit for ticket 01; send the event without it/);
+  assert.equal(u.st().ticket, '01');
+  u.git('reset', '-q', '--hard');
+  const r = u.send('DONE_IT', '--unchanged', 'already there');
+  assert.ok(r.ok, r.out);
+  assert.equal(u.commits(), '1', 'no commit');
+  assert.equal(u.st().queue[0].done, true);
+  assert.equal(u.st().queue[0].sha, undefined);
+  assert.equal(u.st().queue[0].unchanged, 'already there');
+  assert.equal(u.st().ticket, '03');
+  assert.match(u.flow('status', u.run).out, /- \[x\] 01 FIRST · no change: already there/);
+  assert.ok(done(u).ok, 'the next item commits as usual');
+  assert.equal(u.commits(), '2');
 });
 
 test('guards: requires, fresh and verdict print their reasons in a fixed order', () => {
@@ -495,6 +580,20 @@ test('without a run folder, a command uses the run last named on the command lin
   assert.match(t.flow('init').out, /usage: fixture/, 'init always needs a run folder');
 });
 
+test('initial may be a list of routes: init enters the first whose condition holds for the new run', () => {
+  const routed = engine(FIXTURE, ["initial: 'START'", "initial: [{ when: { worktree: 'auto' }, target: 'LOOK' }, { target: 'START' }]"]);
+  const auto = make({ flowPath: routed });
+  const r = auto.create('--gate', 'end', '--worktree', 'auto', '--scope', 'ABC-1');
+  assert.ok(r.ok, r.out);
+  assert.match(r.out, /\(state LOOK, /);
+  assert.equal(auto.st().state, 'LOOK');
+  assert.equal(JSON.parse(auto.read('events.jsonl').trim()).to, 'LOOK');
+  assert.match(auto.flow('status', auto.run).out, /Target: {2}-\n/, 'no event of this state chooses the workspace');
+  const ask = make({ flowPath: routed });
+  assert.ok(ask.create('--gate', 'end').ok);
+  assert.equal(ask.st().state, 'START');
+});
+
 test('the definition is checked at load', () => {
   const cases = [
     [["resume: 'FIX'", "resumes: 'FIX'"], /FIX --HALT--> unknown field\(s\) resumes/],
@@ -505,6 +604,9 @@ test('the definition is checked at load', () => {
     [["maxPerPass: 2, maxHint: 'give up'", "maxHint: 'give up'"], /WORK --AGAIN--> maxHint needs max or maxPerPass/],
     [["{ target: 'LOOK' }]", "{ when: { reviewed: true }, target: 'LOOK' }]"], /FIX --FIXED--> the last route needs no condition/],
     [["resume: 'WORK' }", "resume: 'NOWHERE' }"], /WORK --HALT--> resumes unknown state NOWHERE/],
+    [["initial: 'START'", "initial: 'NOWHERE'"], /definition: initial unknown state NOWHERE/],
+    [["initial: 'START'", "initial: [{ when: { mode: 'x' }, target: 'WORK' }, { target: 'START' }]"], /definition: initial unknown fact mode in when/],
+    [["initial: 'START'", "initial: [{ when: { worktree: 'auto' }, target: 'START' }]"], /definition: initial the last route needs no condition/],
   ];
   for (const [edit, err] of cases) {
     const r = run(engine(FIXTURE, edit));

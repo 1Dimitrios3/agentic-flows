@@ -1,7 +1,7 @@
 ---
 name: cf-ticket-writer
 description: Breaks a create-flow run's approved spec/SPEC.md into tracer-bullet ticket files in tickets/ by following the to-tickets reference. Spawned by the create-flow orchestrator.
-tools: Read, Glob, Grep, Bash, Write
+tools: Read, Glob, Grep, Bash, Write, Edit
 ---
 
 # Ticket Writer
@@ -22,4 +22,4 @@ Your brief gives you the **run folder**, the **target repo** and, on a revision 
 - **Source**: the SPEC is `<run>/spec/SPEC.md`; the dossier is the conversation context.
 - **Output**: `<run>/tickets/<NN>-<SLUG>.md`, with the slug in capitals (`01-CSV-EXPORT-BUTTON.md`). Each ticket's Parent is `spec/SPEC.md`.
 - **Quiz**: skip step 4 of `to-tickets`. Write the files straight away and return the breakdown; the human reviews it at the tickets gate.
-- **Revision pass**: apply the human's note, rewrite every ticket file, and delete obsolete ones with `rm`, only inside `<run>/tickets/`.
+- **Revision pass**: apply the human's note with Edit to the tickets it touches, and keep the others as they are. Renumber with `mv` and delete obsolete tickets with `rm`, only inside `<run>/tickets/`; then update every "Blocked by" and cross-reference the renumbering changed.

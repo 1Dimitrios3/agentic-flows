@@ -7,6 +7,7 @@ used under the MIT License reproduced below.
 | File here | Upstream source | Status |
 |---|---|---|
 | `claude-code/skills/create-flow/references/domain-modeling/` (`domain-modeling.md`, `ADR-FORMAT.md`, `GLOSSARY-FORMAT.md`) | `skills/engineering/domain-modeling/` | Near-verbatim copy |
+| `claude-code/skills/create-flow/references/prototype/` (`prototype.md`, `LOGIC.md`, `UI.md`) | `skills/engineering/prototype/` | Modified |
 | `claude-code/skills/create-flow/references/to-tickets.md` | `skills/engineering/to-tickets/SKILL.md` | Modified |
 | `claude-code/skills/create-flow/references/to-spec.md` | `skills/engineering/to-spec/SKILL.md` | Modified |
 | `claude-code/skills/build-flow/references/code-review.md` | `skills/engineering/code-review/SKILL.md` | Modified |

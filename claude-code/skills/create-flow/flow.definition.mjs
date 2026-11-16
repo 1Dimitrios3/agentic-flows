@@ -119,6 +119,17 @@ After EACH answer: append it to understanding/DECISIONS.md, update understanding
 If an answer needs new evidence, including one that sends you to look ("inspect X"), keep it "- [ ]" until you have it:
 for a page, follow ~/.claude/skills/create-flow/references/inspect-page.md with the human, save its report and the raw JSON of each data request into sources/, and list each new file
 in sources/INDEX.md; otherwise add the gap as a "- [ ]" item.
+A prototype is the human's call, for a question only trying the flow or screen can settle. On their go-ahead, read
+~/.claude/skills/create-flow/references/prototype/prototype.md and follow it:
+- Build it on a throwaway branch of the target repo, created from the current branch once git status shows the target clean;
+  with uncommitted changes there, ask the human first. Tell the human the branch switch changes what their running dev server shows.
+- You create the branch; a subagent writes the code. Brief it with the prototype reference's file paths to read
+  (prototype.md and LOGIC.md or UI.md beside it), the decisions to show and the branch. It drives every prototyped flow
+  in the browser (the chrome-devtools tools) before it hands back, and reports each flow as driven or not driven.
+  Give the human the URL only for flows that were driven.
+- On the human's verdict, commit the prototype on its branch, then switch the target back to the branch it was on, telling the human
+  the prototype leaves their browser with it. Write prototype.md in sources/: the branch and commit, how to run it, its files,
+  the verdict and the decisions it settled. List it in sources/INDEX.md.
 A discovery round is the human's call. Before NEEDS_MORE_DISCOVERY, show them one line per item that needs it: what is missing,
 what the reports say about it now (quoted with its path:line or source, or "nothing"), and whether the sources or the code would answer it.
 Send it only on their go-ahead, with their words as --note; if they decline, answer or defer the item with them instead.`,

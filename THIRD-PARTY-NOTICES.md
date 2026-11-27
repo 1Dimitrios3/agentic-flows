@@ -13,6 +13,10 @@ used under the MIT License reproduced below.
 | `claude-code/skills/build-flow/references/code-review.md` | `skills/engineering/code-review/SKILL.md` | Modified |
 | `claude-code/skills/create-flow/references/grilling.md` | `skills/productivity/grilling/SKILL.md` | Modified |
 
+`portable/road-to-spec/references/` holds copies of the `create-flow`
+reference files listed above, under the same file names, and the same
+upstream sources and statuses apply to them.
+
 Everything else in this repository (the agents, the `build-flow` and
 `create-flow` engines, and the remaining reference files) is original work.
 

@@ -19,8 +19,11 @@ Each flow is a state machine driven by a small Node CLI. The agent does the work
 |---|---|---|
 | [Claude Code](https://claude.com/claude-code) | [`claude-code/`](claude-code/README.md) | Available |
 | [opencode](https://opencode.ai) | [`opencode/`](opencode/) | Migration guides: [create-flow](opencode/CF-MIGRATE.md), [build-flow](opencode/BF-MIGRATE.md) |
+| Any harness that loads skills | [`portable/`](portable/README.md) | Available: road-to-spec |
 
 The Claude Code folder has its own install steps and quick start. The opencode folder has no ready-made port: it holds two guides that an agent follows to port each flow from its Claude Code version to opencode, or to re-sync the port after the Claude Code side changes.
+
+The portable folder holds **road-to-spec**, a prose-only variant of create-flow: the same steps from raw inputs to a SPEC and tickets, as a skill made of Markdown files with no Node CLI or hooks. Nothing enforces its gates, so it trades create-flow's guardrails for running anywhere with one link to install.
 
 ## License
 
